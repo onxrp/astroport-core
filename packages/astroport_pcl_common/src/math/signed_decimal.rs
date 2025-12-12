@@ -24,7 +24,7 @@ impl SignedDecimal256 {
         if self.val.is_zero() {
             Self::from(Decimal256::zero())
         } else {
-            let neg = if exp % 2 == 0 { false } else { self.neg };
+            let neg = if exp.is_multiple_of(2) { false } else { self.neg };
             Self {
                 val: self.val.pow(exp),
                 neg,

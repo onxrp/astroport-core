@@ -380,13 +380,13 @@ impl<'a> PrimaryKey<'a> for &AssetInfo {
 
     type SuperSuffix = Self;
 
-    fn key(&self) -> Vec<Key> {
+    fn key(&self) -> Vec<Key<'_>> {
         vec![Key::Ref(self.as_bytes())]
     }
 }
 
 impl<'a> Prefixer<'a> for &AssetInfo {
-    fn prefix(&self) -> Vec<Key> {
+    fn prefix(&self) -> Vec<Key<'_>> {
         vec![Key::Ref(self.as_bytes())]
     }
 }

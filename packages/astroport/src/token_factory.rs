@@ -1,5 +1,5 @@
 pub use cosmos_sdk_proto::cosmos::base::v1beta1::Coin as ProtoCoin;
-use cosmwasm_std::{Binary, Coin, CosmosMsg, CustomMsg, StdError, Uint128};
+use cosmwasm_std::{Binary, Coin, CosmosMsg, CustomMsg, StdError};
 
 #[cfg(feature = "injective")]
 use cosmwasm_std::BankMsg;
@@ -512,6 +512,8 @@ pub fn tf_create_denom_msg<T>(sender: impl Into<String>, denom: impl Into<String
 where
     T: CustomMsg,
 {
+    use cosmwasm_std::Uint128;
+
     let symbol = denom.into();
     let create_denom_msg = MsgIssue {
         issuer: sender.into(),
@@ -540,6 +542,8 @@ pub fn tf_issue_msg<T>(
 where
     T: CustomMsg,
 {
+    use cosmwasm_std::Uint128;
+    
     let symbol = denom.into();
     let create_denom_msg = MsgIssue {
         issuer: sender.into(),

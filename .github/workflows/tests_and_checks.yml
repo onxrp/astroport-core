@@ -53,7 +53,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings -A unexpected_cfgs
+          args: -- -D warnings -A unexpected_cfgs -A clippy::doc_overindented_list_items
 
       - name: Run tests
         uses: actions-rs/cargo@v1

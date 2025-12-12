@@ -131,6 +131,7 @@ pub fn instantiate(
 }
 
 /// The entry point to the contract for processing replies from submessages.
+#[allow(unused_variables)]
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
     match msg {
