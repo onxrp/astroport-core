@@ -394,7 +394,6 @@ pub fn query_pair_info(deps: Deps, lp_asset: &AssetInfo) -> StdResult<PairInfo> 
 
 #[cfg(not(feature = "coreum"))]
 pub fn get_pair_from_denom(deps: Deps, denom: &str) -> StdResult<Addr> {
-    
     let parts = denom.split('/').collect_vec();
     if denom.starts_with("factory") && denom.ends_with(LP_SUBDENOM) {
         let lp_minter = parts[1];
