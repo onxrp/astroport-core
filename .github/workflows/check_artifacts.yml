@@ -65,7 +65,7 @@ jobs:
       - name: Install Rust for compiling cosmwasm-check
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.88.0
+          toolchain: 1.91.1
 
       - name: Install cosmwasm-check
         run: cargo install --version 1.5.11 cosmwasm-check
