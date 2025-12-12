@@ -543,7 +543,7 @@ where
     T: CustomMsg,
 {
     use cosmwasm_std::Uint128;
-    
+
     let symbol = denom.into();
     let create_denom_msg = MsgIssue {
         issuer: sender.into(),
