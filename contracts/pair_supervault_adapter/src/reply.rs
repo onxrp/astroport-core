@@ -1,6 +1,9 @@
 use crate::error::ContractError;
 use crate::state::{CONFIG, PROVIDE_TMP_DATA, WITHDRAW_TMP_DATA};
 use crate::utils::{ensure_min_assets_to_receive, mint_liquidity_token_message};
+#[cfg(feature = "coreum")]
+use astroport::common::LP_SUBDENOM;
+#[cfg(not(feature = "coreum"))]
 use astroport::token_factory::MsgCreateDenomResponse;
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{
@@ -37,28 +40,40 @@ impl TryFrom<u64> for ReplyIds {
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
     match ReplyIds::try_from(msg.id)? {
         ReplyIds::CreateDenom => {
-            if let SubMsgResult::Ok(SubMsgResponse { data: Some(b), .. }) = msg.result {
-                let MsgCreateDenomResponse { new_token_denom } = b.try_into()?;
-
-                CONFIG.update(deps.storage, |mut config| {
-                    if !config.pair_info.liquidity_token.is_empty() {
-                        return Err(StdError::generic_err(
-                            "Liquidity token is already set in the config",
-                        ));
+            let new_token_denom = match msg.result {
+                SubMsgResult::Ok(SubMsgResponse { data, .. }) => {
+                    #[cfg(not(feature = "coreum"))]
+                    {
+                        // Non-coreum chains expect the protobuf response in `data`
+                        let b = data.ok_or(ContractError::FailedToParseReply {})?;
+                        let MsgCreateDenomResponse { new_token_denom } = b.try_into()?;
+                        new_token_denom
                     }
+                    #[cfg(feature = "coreum")]
+                    {
+                        // Coreum doesn't return tokenfactory MsgCreateDenomResponse data.
+                        format!("{}-{}", LP_SUBDENOM, env.contract.address)
+                    }
+                }
+                SubMsgResult::Err(_) => return Err(ContractError::FailedToParseReply {}),
+            };
 
-                    config
-                        .pair_info
-                        .liquidity_token
-                        .clone_from(&new_token_denom);
+            CONFIG.update(deps.storage, |mut config| {
+                if !config.pair_info.liquidity_token.is_empty() {
+                    return Err(StdError::generic_err(
+                        "Liquidity token is already set in the config",
+                    ));
+                }
 
-                    Ok(config)
-                })?;
+                config
+                    .pair_info
+                    .liquidity_token
+                    .clone_from(&new_token_denom);
 
-                Ok(Response::new().add_attribute("lp_denom", new_token_denom))
-            } else {
-                Err(ContractError::FailedToParseReply {})
-            }
+                Ok(config)
+            })?;
+
+            Ok(Response::new().add_attribute("lp_denom", new_token_denom))
         }
         ReplyIds::PostProvide => {
             let provide_data = PROVIDE_TMP_DATA.load(deps.storage)?;

@@ -233,10 +233,14 @@ fn instantiate_pair(mut router: &mut TestApp, owner: &Addr) -> Addr {
         .query_wasm_smart(pair.clone(), &QueryMsg::Pair {})
         .unwrap();
     assert_eq!("contract2", res.contract_addr);
+
+    #[cfg(not(feature = "coreum"))]
     assert_eq!(
-        format!("factory/contract2/{LP_SUBDENOM}"),
+        format!("factory/contract2/{}", LP_SUBDENOM),
         res.liquidity_token
     );
+    #[cfg(feature = "coreum")]
+    assert_eq!(format!("{}-contract2", LP_SUBDENOM), res.liquidity_token);
 
     pair
 }

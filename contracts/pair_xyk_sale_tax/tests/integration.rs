@@ -197,10 +197,13 @@ fn instantiate_pair(mut router: &mut TestApp, owner: &Addr) -> Addr {
         .query_wasm_smart(pair.clone(), &QueryMsg::Pair {})
         .unwrap();
     assert_eq!("contract1", res.contract_addr);
+    #[cfg(not(feature = "coreum"))]
     assert_eq!(
-        format!("factory/contract1/{LP_SUBDENOM}"),
+        format!("factory/contract1/{}", LP_SUBDENOM),
         res.liquidity_token
     );
+    #[cfg(feature = "coreum")]
+    assert_eq!(format!("{}-contract1", LP_SUBDENOM), res.liquidity_token);
 
     pair
 }
@@ -273,10 +276,13 @@ fn instantiate_standard_xyk_pair(mut router: &mut TestApp, owner: &Addr, version
         .query_wasm_smart(pair.clone(), &QueryMsg::Pair {})
         .unwrap();
     assert_eq!("contract1", res.contract_addr);
+    #[cfg(not(feature = "coreum"))]
     assert_eq!(
         format!("factory/contract1/{}", LP_SUBDENOM),
         res.liquidity_token
     );
+    #[cfg(feature = "coreum")]
+    assert_eq!(format!("{}-contract1", LP_SUBDENOM), res.liquidity_token);
 
     pair
 }
@@ -411,12 +417,18 @@ fn test_provide_and_withdraw_liquidity() {
         )
         .unwrap_err();
 
+    #[cfg(not(feature = "coreum"))]
     assert_eq!(
         err.root_cause().to_string(),
         format!(
             "Must send reserve token 'factory/contract1/{}'",
             LP_SUBDENOM
         )
+    );
+    #[cfg(feature = "coreum")]
+    assert_eq!(
+        err.root_cause().to_string(),
+        format!("Must send reserve token '{}-contract1'", LP_SUBDENOM)
     );
 
     // Withdraw with LP token is successful
@@ -1860,6 +1872,7 @@ fn provide_liquidity_with_autostaking_to_generator() {
     assert_eq!(amount, Uint128::new(99999000));
 }
 
+#[cfg(not(any(feature = "injective", feature = "coreum")))]
 #[test]
 fn test_tracker_contract() {
     let owner = Addr::unchecked("owner");

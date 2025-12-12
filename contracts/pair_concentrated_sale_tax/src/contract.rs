@@ -30,9 +30,9 @@ use astroport::pair_concentrated_sale_tax::{
 use astroport::querier::{
     query_factory_config, query_fee_info, query_native_supply, query_tracker_config,
 };
-use astroport::token_factory::{
-    tf_before_send_hook_msg, tf_burn_msg, tf_create_denom_msg, MsgCreateDenomResponse,
-};
+#[cfg(not(feature = "coreum"))]
+use astroport::token_factory::MsgCreateDenomResponse;
+use astroport::token_factory::{tf_before_send_hook_msg, tf_burn_msg, tf_create_denom_msg};
 use astroport::tokenfactory_tracker;
 use astroport_circular_buffer::BufferManager;
 use astroport_pcl_common::state::{
@@ -186,58 +186,72 @@ pub fn instantiate(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
     match ReplyIds::try_from(msg.id)? {
         ReplyIds::CreateDenom => {
-            if let SubMsgResult::Ok(SubMsgResponse { data: Some(b), .. }) = msg.result {
-                let MsgCreateDenomResponse { new_token_denom } = b.try_into()?;
-                let config = CONFIG.load(deps.storage)?;
+            let new_token_denom = match msg.result {
+                SubMsgResult::Ok(SubMsgResponse { data, .. }) => {
+                    #[cfg(not(feature = "coreum"))]
+                    {
+                        // Non-coreum chains expect the protobuf response in `data`
+                        let b = data.ok_or(ContractError::FailedToParseReply {})?;
+                        let MsgCreateDenomResponse { new_token_denom } = b.try_into()?;
+                        new_token_denom
+                    }
+                    #[cfg(feature = "coreum")]
+                    {
+                        // Coreum doesn't return tokenfactory MsgCreateDenomResponse data.
+                        format!("{}-{}", LP_SUBDENOM, env.contract.address)
+                    }
+                }
+                SubMsgResult::Err(_) => return Err(ContractError::FailedToParseReply {}),
+            };
 
-                let tracking = config.track_asset_balances;
-                let mut sub_msgs = vec![];
+            let config = CONFIG.load(deps.storage)?;
 
-                #[cfg(feature = "injective")]
-                let tracking = false;
+            let mut sub_msgs = vec![];
 
-                if tracking {
-                    let factory_config =
-                        query_factory_config(&deps.querier, config.factory_addr.clone())?;
-                    let tracker_config = query_tracker_config(&deps.querier, config.factory_addr)?;
-                    // Instantiate tracking contract
-                    let sub_msg: Vec<SubMsg> = vec![SubMsg::reply_on_success(
-                        WasmMsg::Instantiate {
-                            admin: Some(factory_config.owner.to_string()),
-                            code_id: tracker_config.code_id,
-                            msg: to_json_binary(&tokenfactory_tracker::InstantiateMsg {
-                                tokenfactory_module_address: tracker_config
-                                    .token_factory_addr
-                                    .to_string(),
-                                tracked_denom: new_token_denom.clone(),
-                                track_over_seconds: false,
-                            })?,
-                            funds: vec![],
-                            label: format!("{new_token_denom} tracking contract"),
-                        },
-                        ReplyIds::InstantiateTrackingContract as u64,
-                    )];
+            #[cfg(not(any(feature = "injective", feature = "coreum")))]
+            let tracking = config.track_asset_balances;
+            #[cfg(any(feature = "injective", feature = "coreum"))]
+            let tracking = false;
 
-                    sub_msgs.extend(sub_msg);
+            if tracking {
+                let factory_config =
+                    query_factory_config(&deps.querier, config.factory_addr.clone())?;
+                let tracker_config = query_tracker_config(&deps.querier, config.factory_addr)?;
+                // Instantiate tracking contract
+                let sub_msg: Vec<SubMsg> = vec![SubMsg::reply_on_success(
+                    WasmMsg::Instantiate {
+                        admin: Some(factory_config.owner.to_string()),
+                        code_id: tracker_config.code_id,
+                        msg: to_json_binary(&tokenfactory_tracker::InstantiateMsg {
+                            tokenfactory_module_address: tracker_config
+                                .token_factory_addr
+                                .to_string(),
+                            tracked_denom: new_token_denom.clone(),
+                            track_over_seconds: false,
+                        })?,
+                        funds: vec![],
+                        label: format!("{new_token_denom} tracking contract"),
+                    },
+                    ReplyIds::InstantiateTrackingContract as u64,
+                )];
+
+                sub_msgs.extend(sub_msg);
+            }
+
+            CONFIG.update(deps.storage, |mut config| {
+                if !config.pair_info.liquidity_token.is_empty() {
+                    return Err(StdError::generic_err(
+                        "Liquidity token is already set in the config",
+                    ));
                 }
 
-                CONFIG.update(deps.storage, |mut config| {
-                    if !config.pair_info.liquidity_token.is_empty() {
-                        return Err(StdError::generic_err(
-                            "Liquidity token is already set in the config",
-                        ));
-                    }
+                config.pair_info.liquidity_token = new_token_denom.clone();
+                Ok(config)
+            })?;
 
-                    config.pair_info.liquidity_token = new_token_denom.clone();
-                    Ok(config)
-                })?;
-
-                Ok(Response::new()
-                    .add_submessages(sub_msgs)
-                    .add_attribute("lp_denom", new_token_denom))
-            } else {
-                Err(ContractError::FailedToParseReply {})
-            }
+            Ok(Response::new()
+                .add_submessages(sub_msgs)
+                .add_attribute("lp_denom", new_token_denom))
         }
         ReplyIds::InstantiateTrackingContract => {
             let MsgInstantiateContractResponse {

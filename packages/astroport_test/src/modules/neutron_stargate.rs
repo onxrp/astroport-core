@@ -19,6 +19,9 @@ use neutron_std::types::neutron::dex::{
 use prost::Message;
 use sha2::Digest;
 
+#[cfg(feature = "coreum")]
+use astroport::token_factory::{EmptyResponse, MsgBurn, MsgIssue, MsgMint, MsgSetBeforeSendHook};
+#[cfg(not(feature = "coreum"))]
 use astroport::token_factory::{
     MsgBurn, MsgCreateDenom, MsgCreateDenomResponse, MsgMint, MsgSetBeforeSendHook,
 };
@@ -59,6 +62,7 @@ impl Module for NeutronStargate {
         } = msg;
 
         match type_url.as_str() {
+            #[cfg(not(feature = "coreum"))]
             MsgCreateDenom::TYPE_URL => {
                 let tf_msg: MsgCreateDenom = value.try_into()?;
                 let submsg_response = SubMsgResponse {
@@ -72,12 +76,28 @@ impl Module for NeutronStargate {
                 };
                 Ok(submsg_response.into())
             }
+            #[cfg(feature = "coreum")]
+            MsgIssue::TYPE_URL => {
+                let submsg_response = SubMsgResponse {
+                    events: vec![],
+                    data: Some(astroport::token_factory::EmptyResponse {}.into()),
+                };
+                Ok(submsg_response.into())
+            }
             MsgMint::TYPE_URL => {
                 let tf_msg: MsgMint = value.try_into()?;
+                #[cfg(not(feature = "coreum"))]
                 let mint_coins = tf_msg
                     .amount
                     .expect("Empty amount in tokenfactory MsgMint!");
+                #[cfg(feature = "coreum")]
+                let mint_coins = tf_msg.coin.expect("Empty coin in tokenfactory MsgMint!");
+                #[cfg(not(any(feature = "injective", feature = "coreum")))]
                 let to_address = tf_msg.mint_to_address.to_string();
+                #[cfg(feature = "injective")]
+                let to_address = sender.to_string();
+                #[cfg(feature = "coreum")]
+                let to_address = tf_msg.recipient.to_string();
                 let bank_sudo = BankSudo::Mint {
                     to_address,
                     amount: coins(mint_coins.amount.parse()?, mint_coins.denom),
@@ -86,9 +106,12 @@ impl Module for NeutronStargate {
             }
             MsgBurn::TYPE_URL => {
                 let tf_msg: MsgBurn = value.try_into()?;
+                #[cfg(not(feature = "coreum"))]
                 let burn_coins = tf_msg
                     .amount
                     .expect("Empty amount in tokenfactory MsgBurn!");
+                #[cfg(feature = "coreum")]
+                let burn_coins = tf_msg.coin.expect("Empty coin in tokenfactory MsgBurn!");
                 let burn_msg = BankMsg::Burn {
                     amount: coins(burn_coins.amount.parse()?, burn_coins.denom),
                 };

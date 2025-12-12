@@ -18,6 +18,9 @@ use astroport::pair::{
     ConfigResponse, Cw20HookMsg, ExecuteMsg, InstantiateMsg, PoolResponse, QueryMsg,
     SimulationResponse, StablePoolParams,
 };
+#[cfg(feature = "coreum")]
+use astroport::token_factory::{EmptyResponse, Feature, MsgBurn, MsgIssue, MsgMint};
+#[cfg(not(feature = "coreum"))]
 use astroport::token_factory::{MsgBurn, MsgCreateDenom, MsgCreateDenomResponse, MsgMint};
 use astroport_circular_buffer::BufferManager;
 use astroport_test::convert::f64_to_dec;
@@ -44,10 +47,13 @@ fn store_liquidity_token(deps: DepsMut, msg_id: u64, subdenom: String) {
         result: SubMsgResult::Ok(SubMsgResponse {
             events: vec![],
             data: Some(
+                #[cfg(not(feature = "coreum"))]
                 MsgCreateDenomResponse {
                     new_token_denom: subdenom,
                 }
                 .into(),
+                #[cfg(feature = "coreum")]
+                EmptyResponse {}.into(),
             ),
         }),
     };
@@ -94,6 +100,7 @@ fn proper_initialization() {
     assert_eq!(
         res.messages,
         vec![SubMsg {
+            #[cfg(not(feature = "coreum"))]
             msg: CosmosMsg::Stargate {
                 type_url: MsgCreateDenom::TYPE_URL.to_string(),
                 value: Binary(
@@ -104,13 +111,32 @@ fn proper_initialization() {
                     .encode_to_vec()
                 )
             },
+            #[cfg(feature = "coreum")]
+            msg: CosmosMsg::Stargate {
+                type_url: MsgIssue::TYPE_URL.to_string(),
+                value: Binary(
+                    MsgIssue {
+                        issuer: env.contract.address.to_string(),
+                        subunit: LP_SUBDENOM.to_string(),
+                        symbol: LP_SUBDENOM.to_string(),
+                        precision: 6,
+                        initial_amount: Uint128::zero().to_string(),
+                        features: vec![Feature::Minting as i32, Feature::Freezing as i32],
+                        ..MsgIssue::default()
+                    }
+                    .encode_to_vec()
+                )
+            },
             id: 1,
             gas_limit: None,
             reply_on: ReplyOn::Success
         },]
     );
 
+    #[cfg(not(feature = "coreum"))]
     let denom = format!("factory/{}/{}", env.contract.address, "astroport/share");
+    #[cfg(feature = "coreum")]
+    let denom = format!("{}-{}", "astroport/share", env.contract.address);
 
     // Store liquidity token
     store_liquidity_token(deps.as_mut(), 1, denom.to_string());
@@ -174,7 +200,10 @@ fn provide_liquidity() {
     let info = mock_info("addr0000", &[]);
     // We can just call .unwrap() to assert this was a success
     let _res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
-    let denom = format!("factory/{}/{}", env.contract.address, "share/astroport");
+    #[cfg(not(feature = "coreum"))]
+    let denom = format!("factory/{}/{}", env.contract.address, "astroport/share");
+    #[cfg(feature = "coreum")]
+    let denom = format!("{}-{}", "astroport/share", env.contract.address);
 
     // Store the liquidity token
     store_liquidity_token(deps.as_mut(), 1, denom.to_string());
@@ -242,13 +271,21 @@ fn provide_liquidity() {
                 type_url: MsgMint::TYPE_URL.to_string(),
                 value: Binary::from(
                     MsgMint {
+                        #[cfg(not(feature = "coreum"))]
                         amount: Some(astroport::token_factory::ProtoCoin {
                             denom: denom.to_string(),
-                            amount: Uint128::from(1000_u128).to_string(),
+                            amount: Uint128::from(1000u128).to_string(),
+                        }),
+                        #[cfg(feature = "coreum")]
+                        coin: Some(astroport::token_factory::ProtoCoin {
+                            denom: denom.to_string(),
+                            amount: Uint128::from(1000u128).to_string(),
                         }),
                         sender: env.contract.address.to_string(),
-                        #[cfg(not(feature = "injective"))]
+                        #[cfg(not(any(feature = "injective", feature = "coreum")))]
                         mint_to_address: String::from(MOCK_CONTRACT_ADDR),
+                        #[cfg(feature = "coreum")]
+                        recipient: String::from(MOCK_CONTRACT_ADDR),
                     }
                     .encode_to_vec()
                 )
@@ -266,13 +303,21 @@ fn provide_liquidity() {
                 type_url: MsgMint::TYPE_URL.to_string(),
                 value: Binary::from(
                     MsgMint {
+                        #[cfg(not(feature = "coreum"))]
                         amount: Some(astroport::token_factory::ProtoCoin {
                             denom: denom.to_string(),
                             amount: Uint128::from(299_814_698_523_989_456_628u128).to_string(),
                         }),
+                        #[cfg(feature = "coreum")]
+                        coin: Some(astroport::token_factory::ProtoCoin {
+                            denom: denom.to_string(),
+                            amount: Uint128::from(299_814_698_523_989_456_628u128).to_string(),
+                        }),
                         sender: env.contract.address.to_string(),
-                        #[cfg(not(feature = "injective"))]
+                        #[cfg(not(any(feature = "injective", feature = "coreum")))]
                         mint_to_address: String::from("addr0000"),
+                        #[cfg(feature = "coreum")]
+                        recipient: String::from("addr0000"),
                     }
                     .encode_to_vec()
                 )
@@ -364,13 +409,21 @@ fn provide_liquidity() {
                 type_url: MsgMint::TYPE_URL.to_string(),
                 value: Binary::from(
                     MsgMint {
+                        #[cfg(not(feature = "coreum"))]
                         amount: Some(astroport::token_factory::ProtoCoin {
                             denom: denom.to_string(),
                             amount: Uint128::from(74_981_956_874_579_206461u128).to_string(),
                         }),
+                        #[cfg(feature = "coreum")]
+                        coin: Some(astroport::token_factory::ProtoCoin {
+                            denom: denom.to_string(),
+                            amount: Uint128::from(74_981_956_874_579_206461u128).to_string(),
+                        }),
                         sender: env.contract.address.to_string(),
-                        #[cfg(not(feature = "injective"))]
+                        #[cfg(not(any(feature = "injective", feature = "coreum")))]
                         mint_to_address: String::from("addr0000"),
+                        #[cfg(feature = "coreum")]
+                        recipient: String::from("addr0000"),
                     }
                     .encode_to_vec()
                 )
@@ -563,7 +616,10 @@ fn withdraw_liquidity() {
         ),
     };
 
-    let denom = format!("factory/{}/{}", env.contract.address, "share/astroport");
+    #[cfg(not(feature = "coreum"))]
+    let denom = format!("factory/{}/{}", env.contract.address, "astroport/share");
+    #[cfg(feature = "coreum")]
+    let denom = format!("{}-{}", "astroport/share", env.contract.address);
 
     deps.querier.with_token_balances(&[(
         &String::from("asset0000"),
@@ -639,11 +695,17 @@ fn withdraw_liquidity() {
                 value: Binary::from(
                     MsgBurn {
                         sender: env.contract.address.to_string(),
+                        #[cfg(not(feature = "coreum"))]
                         amount: Some(astroport::token_factory::ProtoCoin {
                             denom: denom.to_string(),
                             amount: Uint128::from(100u128).to_string(),
                         }),
-                        #[cfg(not(feature = "injective"))]
+                        #[cfg(feature = "coreum")]
+                        coin: Some(astroport::token_factory::ProtoCoin {
+                            denom: denom.to_string(),
+                            amount: Uint128::from(100u128).to_string(),
+                        }),
+                        #[cfg(not(any(feature = "injective", feature = "coreum")))]
                         burn_from_address: "".to_string()
                     }
                     .encode_to_vec()
@@ -1047,7 +1109,10 @@ fn test_query_pool() {
         amount: asset_0_amount,
     }]);
 
-    let denom = format!("factory/{}/{}", env.contract.address, "share/astroport");
+    #[cfg(not(feature = "coreum"))]
+    let denom = format!("factory/{}/{}", env.contract.address, "astroport/share");
+    #[cfg(feature = "coreum")]
+    let denom = format!("{}-{}", "astroport/share", env.contract.address);
 
     deps.querier.with_token_balances(&[(
         &String::from("asset0000"),
@@ -1122,7 +1187,10 @@ fn test_query_share() {
         amount: asset_0_amount,
     }]);
 
-    let denom = format!("factory/{}/{}", env.contract.address, "share/astroport");
+    #[cfg(not(feature = "coreum"))]
+    let denom = format!("factory/{}/{}", env.contract.address, "astroport/share");
+    #[cfg(feature = "coreum")]
+    let denom = format!("{}-{}", "astroport/share", env.contract.address);
 
     deps.querier.with_token_balances(&[(
         &String::from("asset0000"),

@@ -196,10 +196,13 @@ fn test_create_pair() {
     // In multitest, contract names are counted in the order in which contracts are created
     assert_eq!("contract1", helper.factory.to_string());
     assert_eq!("contract4", res.contract_addr.to_string());
+    #[cfg(not(feature = "coreum"))]
     assert_eq!(
         "factory/contract4/astroport/share",
         res.liquidity_token.to_string()
     );
+    #[cfg(feature = "coreum")]
+    assert_eq!("astroport/share-contract4", res.liquidity_token.to_string());
 
     // Create disabled pair type
     app.execute_contract(

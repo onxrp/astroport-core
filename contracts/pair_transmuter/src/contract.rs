@@ -12,9 +12,9 @@ use astroport::asset::{addr_opt_validate, Asset, AssetInfo, CoinsExt, PairInfo};
 use astroport::common::LP_SUBDENOM;
 use astroport::factory::PairType;
 use astroport::pair::{ExecuteMsg, InstantiateMsg};
-use astroport::token_factory::{
-    tf_burn_msg, tf_create_denom_msg, tf_mint_msg, MsgCreateDenomResponse,
-};
+#[cfg(not(feature = "coreum"))]
+use astroport::token_factory::MsgCreateDenomResponse;
+use astroport::token_factory::{tf_burn_msg, tf_create_denom_msg, tf_mint_msg};
 
 use crate::error::ContractError;
 use crate::state::{Config, CONFIG};
@@ -68,16 +68,29 @@ pub fn instantiate(
 
 /// The entry point to the contract for processing replies from submessages.
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn reply(deps: DepsMut, _env: Env, msg: Reply) -> Result<Response, ContractError> {
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
     match msg {
         Reply {
             id: CREATE_DENOM_REPLY_ID,
-            result:
-                SubMsgResult::Ok(SubMsgResponse {
-                    data: Some(data), ..
-                }),
+            result,
         } => {
-            let MsgCreateDenomResponse { new_token_denom } = data.try_into()?;
+            let new_token_denom = match result {
+                SubMsgResult::Ok(SubMsgResponse { data, .. }) => {
+                    #[cfg(not(feature = "coreum"))]
+                    {
+                        // Non-coreum chains expect the protobuf response in `data`
+                        let b = data.ok_or(ContractError::FailedToParseReply {})?;
+                        let MsgCreateDenomResponse { new_token_denom } = b.try_into()?;
+                        new_token_denom
+                    }
+                    #[cfg(feature = "coreum")]
+                    {
+                        // Coreum doesn't return tokenfactory MsgCreateDenomResponse data.
+                        format!("{}-{}", LP_SUBDENOM, env.contract.address)
+                    }
+                }
+                SubMsgResult::Err(_) => return Err(ContractError::FailedToParseReply {}),
+            };
 
             CONFIG.update(deps.storage, |mut config| {
                 if !config.pair_info.liquidity_token.is_empty() {

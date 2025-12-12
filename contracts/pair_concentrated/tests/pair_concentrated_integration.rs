@@ -2035,6 +2035,7 @@ fn test_provide_liquidity_without_funds() {
     )
 }
 
+#[cfg(not(any(feature = "injective", feature = "coreum")))]
 #[test]
 fn test_tracker_contract() {
     let owner = Addr::unchecked("owner");

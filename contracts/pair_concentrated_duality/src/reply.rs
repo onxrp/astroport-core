@@ -1,9 +1,12 @@
 use cosmwasm_std::{DepsMut, Env, Reply, Response, StdError, SubMsgResponse, SubMsgResult};
 
 use astroport::pair_concentrated_duality::ReplyIds;
+#[cfg(not(feature = "coreum"))]
 use astroport::token_factory::MsgCreateDenomResponse;
 
 use crate::error::ContractError;
+#[cfg(feature = "coreum")]
+use crate::instantiate::LP_SUBDENOM;
 use crate::orderbook::state::OrderbookState;
 use crate::orderbook::utils::{fetch_autoexecuted_trade, Liquidity};
 use crate::state::CONFIG;
@@ -13,28 +16,40 @@ use crate::state::CONFIG;
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
     match ReplyIds::try_from(msg.id)? {
         ReplyIds::CreateDenom => {
-            if let SubMsgResult::Ok(SubMsgResponse { data: Some(b), .. }) = msg.result {
-                let MsgCreateDenomResponse { new_token_denom } = b.try_into()?;
-
-                CONFIG.update(deps.storage, |mut config| {
-                    if !config.pair_info.liquidity_token.is_empty() {
-                        return Err(StdError::generic_err(
-                            "Liquidity token is already set in the config",
-                        ));
+            let new_token_denom = match msg.result {
+                SubMsgResult::Ok(SubMsgResponse { data, .. }) => {
+                    #[cfg(not(feature = "coreum"))]
+                    {
+                        // Non-coreum chains expect the protobuf response in `data`
+                        let b = data.ok_or(ContractError::FailedToParseReply {})?;
+                        let MsgCreateDenomResponse { new_token_denom } = b.try_into()?;
+                        new_token_denom
                     }
+                    #[cfg(feature = "coreum")]
+                    {
+                        // Coreum doesn't return tokenfactory MsgCreateDenomResponse data.
+                        format!("{}-{}", LP_SUBDENOM, env.contract.address)
+                    }
+                }
+                SubMsgResult::Err(_) => return Err(ContractError::FailedToParseReply {}),
+            };
 
-                    config
-                        .pair_info
-                        .liquidity_token
-                        .clone_from(&new_token_denom);
+            CONFIG.update(deps.storage, |mut config| {
+                if !config.pair_info.liquidity_token.is_empty() {
+                    return Err(StdError::generic_err(
+                        "Liquidity token is already set in the config",
+                    ));
+                }
 
-                    Ok(config)
-                })?;
+                config
+                    .pair_info
+                    .liquidity_token
+                    .clone_from(&new_token_denom);
 
-                Ok(Response::new().add_attribute("lp_denom", new_token_denom))
-            } else {
-                Err(ContractError::FailedToParseReply {})
-            }
+                Ok(config)
+            })?;
+
+            Ok(Response::new().add_attribute("lp_denom", new_token_denom))
         }
         ReplyIds::PostLimitOrderCb => {
             let mut ob_state = OrderbookState::load(deps.storage)?;

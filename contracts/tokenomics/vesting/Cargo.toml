@@ -8,6 +8,13 @@ license = "GPL-3.0-only"
 repository = "https://github.com/astroport-fi/astroport"
 homepage = "https://astroport.fi"
 
+[package.metadata]
+build_variants = ["coreum"]
+
+[package.metadata.optimizer]
+standard-build = true
+builds = [{ name = "coreum", features = ["coreum"] }]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -15,6 +22,7 @@ crate-type = ["cdylib", "rlib"]
 backtraces = ["cosmwasm-std/backtraces"]
 # use library feature to disable all init/handle/query exports
 library = []
+coreum = []
 
 [dependencies]
 cw2.workspace = true

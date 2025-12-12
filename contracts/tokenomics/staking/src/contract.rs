@@ -1,16 +1,20 @@
+#[cfg(feature = "coreum")]
+use astroport::token_factory::tf_issue_msg;
+use astroport::token_factory::{tf_before_send_hook_msg, tf_burn_msg, tf_mint_msg};
+#[cfg(not(feature = "coreum"))]
+use astroport::token_factory::{
+    tf_create_denom_msg, tf_set_denom_metadata_msg, DenomUnit, Metadata, MsgCreateDenomResponse,
+};
+
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, coin, ensure, to_json_binary, BankMsg, Binary, Coin, CosmosMsg, Deps, DepsMut, Env,
-    MessageInfo, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg,
+    MessageInfo, Reply, Response, StdError, StdResult, SubMsg, SubMsgResponse, SubMsgResult,
+    Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 use cw_utils::{must_pay, parse_reply_instantiate_data, MsgInstantiateContractResponse};
-use osmosis_std::types::cosmos::bank::v1beta1::{DenomUnit, Metadata};
-use osmosis_std::types::osmosis::tokenfactory::v1beta1::{
-    MsgBurn, MsgCreateDenom, MsgCreateDenomResponse, MsgMint, MsgSetBeforeSendHook,
-    MsgSetDenomMetadata,
-};
 
 use astroport::staking::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, StakingResponse, TrackerData,
@@ -92,10 +96,16 @@ pub fn instantiate(
     )?;
 
     let create_denom_msg = SubMsg::reply_on_success(
-        MsgCreateDenom {
-            sender: env.contract.address.to_string(),
-            subdenom: TOKEN_SYMBOL.to_owned(),
-        },
+        #[cfg(not(feature = "coreum"))]
+        tf_create_denom_msg(env.contract.address.to_string(), TOKEN_SYMBOL.to_owned()),
+        #[cfg(feature = "coreum")]
+        tf_issue_msg(
+            env.contract.address.to_string(),
+            TOKEN_SYMBOL.to_owned(),
+            format!("{} - Astroport is a neutral marketplace where anyone, from anywhere in the galaxy, can dock to trade their wares.", TOKEN_NAME),
+            "https://app.astroport.fi/tokens/xAstro.svg".to_string(),
+            "d39cfe20605a9857b2b123c6d6dbbdf4d3b65cb9d411cee1011877b918b4c646".to_string()
+        ),
         ReplyIds::InstantiateDenom as u64,
     );
 
@@ -153,57 +163,70 @@ pub fn execute(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractError> {
     match ReplyIds::try_from(msg.id)? {
         ReplyIds::InstantiateDenom => {
-            let MsgCreateDenomResponse { new_token_denom } = msg.result.try_into()?;
+            if let SubMsgResult::Ok(SubMsgResponse { data: Some(b), .. }) = msg.result {
+                #[cfg(not(feature = "coreum"))]
+                let MsgCreateDenomResponse { new_token_denom } = b.try_into()?;
+                #[cfg(feature = "coreum")]
+                let new_token_denom = format!("{}-{}", TOKEN_SYMBOL, env.contract.address);
 
-            let denom_metadata_msg = MsgSetDenomMetadata {
-                sender: env.contract.address.to_string(),
-                metadata: Some(Metadata {
-                    symbol: TOKEN_SYMBOL.to_string(),
-                    name: TOKEN_NAME.to_string(),
-                    base: new_token_denom.clone(),
-                    display: TOKEN_SYMBOL.to_string(),
-                    denom_units: vec![
-                        DenomUnit {
-                            denom: new_token_denom.clone(),
-                            exponent: 0,
-                            aliases: vec![],
+                CONFIG.update::<_, StdError>(deps.storage, |mut config| {
+                    config.xastro_denom = new_token_denom.clone();
+                    Ok(config)
+                })?;
+
+                let mut res =
+                    Response::new().add_attribute("xastro_denom", new_token_denom.clone());
+
+                #[cfg(not(any(feature = "injective", feature = "coreum")))]
+                if true {
+                    res = res.add_message(tf_set_denom_metadata_msg(env.contract.address.to_string(), Metadata {
+                        symbol: TOKEN_SYMBOL.to_string(),
+                        name: TOKEN_NAME.to_string(),
+                        base: new_token_denom.clone(),
+                        display: TOKEN_SYMBOL.to_string(),
+                        denom_units: vec![
+                            DenomUnit {
+                                denom: new_token_denom.clone(),
+                                exponent: 0,
+                                aliases: vec![],
+                            },
+                            DenomUnit {
+                                denom: TOKEN_SYMBOL.to_string(),
+                                exponent: 6,
+                                aliases: vec![],
+                            },
+                        ],
+                        description: "Astroport is a neutral marketplace where anyone, from anywhere in the galaxy, can dock to trade their wares.".to_string(),
+                        uri: "https://app.astroport.fi/tokens/xAstro.svg".to_string(),
+                        uri_hash: "d39cfe20605a9857b2b123c6d6dbbdf4d3b65cb9d411cee1011877b918b4c646".to_string(),
+                    }));
+                }
+
+                #[cfg(not(any(feature = "injective", feature = "coreum")))]
+                if true {
+                    let tracker_data = TRACKER_DATA.load(deps.storage)?;
+                    let init_tracking_contract = SubMsg::reply_on_success(
+                        WasmMsg::Instantiate {
+                            admin: Some(tracker_data.admin),
+                            code_id: tracker_data.code_id,
+                            msg: to_json_binary(
+                                &astroport_v4::tokenfactory_tracker::InstantiateMsg {
+                                    tokenfactory_module_address: tracker_data.token_factory_addr,
+                                    tracked_denom: new_token_denom.clone(),
+                                },
+                            )?,
+                            funds: vec![],
+                            label: format!("{TOKEN_SYMBOL} balances tracker"),
                         },
-                        DenomUnit {
-                            denom: TOKEN_SYMBOL.to_string(),
-                            exponent: 6,
-                            aliases: vec![],
-                        },
-                    ],
-                    description: "Astroport is a neutral marketplace where anyone, from anywhere in the galaxy, can dock to trade their wares.".to_string(),
-                    uri: "https://app.astroport.fi/tokens/xAstro.svg".to_string(),
-                    uri_hash: "d39cfe20605a9857b2b123c6d6dbbdf4d3b65cb9d411cee1011877b918b4c646".to_string(),
-                }),
-            };
+                        ReplyIds::InstantiateTrackingContract as u64,
+                    );
+                    res = res.add_submessage(init_tracking_contract);
+                }
 
-            CONFIG.update::<_, StdError>(deps.storage, |mut config| {
-                config.xastro_denom = new_token_denom.clone();
-                Ok(config)
-            })?;
-
-            let tracker_data = TRACKER_DATA.load(deps.storage)?;
-
-            let init_tracking_contract = SubMsg::reply_on_success(
-                WasmMsg::Instantiate {
-                    admin: Some(tracker_data.admin),
-                    code_id: tracker_data.code_id,
-                    msg: to_json_binary(&astroport_v4::tokenfactory_tracker::InstantiateMsg {
-                        tokenfactory_module_address: tracker_data.token_factory_addr,
-                        tracked_denom: new_token_denom.clone(),
-                    })?,
-                    funds: vec![],
-                    label: format!("{TOKEN_SYMBOL} balances tracker"),
-                },
-                ReplyIds::InstantiateTrackingContract as u64,
-            );
-
-            Ok(Response::new()
-                .add_submessages([SubMsg::new(denom_metadata_msg), init_tracking_contract])
-                .add_attribute("xastro_denom", new_token_denom))
+                Ok(res)
+            } else {
+                Err(ContractError::FailedToParseReply {})
+            }
         }
         ReplyIds::InstantiateTrackingContract => {
             let MsgInstantiateContractResponse {
@@ -217,12 +240,11 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
 
             let config = CONFIG.load(deps.storage)?;
 
-            // Enable balance tracking for xASTRO
-            let set_hook_msg = MsgSetBeforeSendHook {
-                sender: env.contract.address.to_string(),
-                denom: config.xastro_denom,
-                cosmwasm_address: contract_address.clone(),
-            };
+            let set_hook_msg = tf_before_send_hook_msg(
+                env.contract.address,
+                config.xastro_denom,
+                contract_address.clone(),
+            );
 
             Ok(Response::new()
                 .add_message(set_hook_msg)
@@ -264,14 +286,11 @@ fn execute_enter(
         }
 
         // Mint the xASTRO tokens to ourselves if this is the first stake
-        messages.push(
-            MsgMint {
-                sender: env.contract.address.to_string(),
-                amount: Some(coin(MINIMUM_STAKE_AMOUNT.u128(), &config.xastro_denom).into()),
-                mint_to_address: env.contract.address.to_string(),
-            }
-            .into(),
-        );
+        messages.extend(tf_mint_msg(
+            env.contract.address.to_string(),
+            coin(MINIMUM_STAKE_AMOUNT.u128(), &config.xastro_denom),
+            env.contract.address.to_string(),
+        ));
 
         amount - MINIMUM_STAKE_AMOUNT
     } else {
@@ -285,14 +304,11 @@ fn execute_enter(
     let minted_coins = coin(mint_amount.u128(), config.xastro_denom);
 
     // Mint new xASTRO tokens to the staking contract
-    messages.push(
-        MsgMint {
-            sender: env.contract.address.to_string(),
-            amount: Some(minted_coins.clone().into()),
-            mint_to_address: env.contract.address.to_string(),
-        }
-        .into(),
-    );
+    messages.extend(tf_mint_msg(
+        env.contract.address.to_string(),
+        minted_coins.clone(),
+        env.contract.address.to_string(),
+    ));
 
     // Set the data to be returned in set_data to easy integration with
     // other contracts
@@ -339,12 +355,10 @@ fn execute_leave(
 
     let messages: Vec<CosmosMsg> = vec![
         // Burn the received xASTRO tokens
-        MsgBurn {
-            sender: env.contract.address.to_string(),
-            amount: Some(coin(amount.u128(), &config.xastro_denom).into()),
-            burn_from_address: "".to_string(), // This needs to be "" for now
-        }
-        .into(),
+        tf_burn_msg(
+            env.contract.address.to_string(),
+            coin(amount.u128(), &config.xastro_denom),
+        ),
         // Send ASTRO to the sender
         BankMsg::Send {
             to_address: recipient.clone(),

@@ -8,10 +8,17 @@ license = "GPL-3.0-only"
 repository = "https://github.com/astroport-fi/astroport"
 homepage = "https://astroport.fi"
 
+[package.metadata]
+build_variants = ["injective", "coreum"]
+
+[package.metadata.optimizer]
+standard-build = true
+builds = [{ name = "coreum", features = ["coreum"] }]
+
 exclude = [
-    # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
-    "contract.wasm",
-    "hash.txt",
+  # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
+  "contract.wasm",
+  "hash.txt",
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -23,6 +30,8 @@ crate-type = ["cdylib", "rlib"]
 # for more explicit tests, cargo test --features=backtraces
 backtraces = ["cosmwasm-std/backtraces"]
 library = []
+injective = ["astroport/injective", "astroport-test/injective"]
+coreum = ["astroport/coreum", "astroport-test/coreum"]
 
 [dependencies]
 cosmwasm-std = { workspace = true, features = ["cosmwasm_1_1"] }
@@ -32,11 +41,13 @@ cw2.workspace = true
 astroport.workspace = true
 astroport_v4 = { package = "astroport", version = "4" }
 cw-utils.workspace = true
-osmosis-std = "0.21.0"
 
 [dev-dependencies]
 anyhow = "1"
 itertools.workspace = true
 cosmwasm-schema.workspace = true
-cw-multi-test = { git = "https://github.com/astroport-fi/cw-multi-test", branch = "feat/bank_with_send_hooks", features = ["cosmwasm_1_1"] }
+cw-multi-test = { git = "https://github.com/astroport-fi/cw-multi-test", branch = "feat/bank_with_send_hooks_1_0", features = [
+  "cosmwasm_1_1",
+] }
 astroport-tokenfactory-tracker = "1.0.0"
+astroport-test = { path = "../../../packages/astroport_test" }

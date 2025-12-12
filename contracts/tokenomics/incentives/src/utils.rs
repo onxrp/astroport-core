@@ -392,7 +392,9 @@ pub fn query_pair_info(deps: Deps, lp_asset: &AssetInfo) -> StdResult<PairInfo> 
     }
 }
 
+#[cfg(not(feature = "coreum"))]
 pub fn get_pair_from_denom(deps: Deps, denom: &str) -> StdResult<Addr> {
+    
     let parts = denom.split('/').collect_vec();
     if denom.starts_with("factory") && denom.ends_with(LP_SUBDENOM) {
         let lp_minter = parts[1];
@@ -400,6 +402,19 @@ pub fn get_pair_from_denom(deps: Deps, denom: &str) -> StdResult<Addr> {
     } else {
         Err(StdError::generic_err(format!(
             "LP token {denom} doesn't follow token factory format: factory/{{lp_minter}}/{{token_name}}",
+        )))
+    }
+}
+
+#[cfg(feature = "coreum")]
+pub fn get_pair_from_denom(deps: Deps, denom: &str) -> StdResult<Addr> {
+    let parts = denom.split('-').collect_vec();
+    let lp_minter = parts.last();
+    if let Some(lp_minter) = lp_minter {
+        deps.api.addr_validate(lp_minter)
+    } else {
+        Err(StdError::generic_err(format!(
+            "LP token {denom} doesn't follow token factory format: {{token_name}}-{{lp_minter}}",
         )))
     }
 }

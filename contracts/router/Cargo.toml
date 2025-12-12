@@ -8,6 +8,13 @@ license = "GPL-3.0-only"
 repository = "https://github.com/astroport-fi/astroport"
 homepage = "https://astroport.fi"
 
+[package.metadata]
+build_variants = ["coreum"]
+
+[package.metadata.optimizer]
+standard-build = true
+builds = [{ name = "coreum", features = ["coreum"] }]
+
 exclude = [
     # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
     "contract.wasm",
@@ -24,6 +31,7 @@ crate-type = ["cdylib", "rlib"]
 # for more explicit tests, cargo test --features=backtraces
 backtraces = ["cosmwasm-std/backtraces"]
 library = []
+coreum = ["astroport/coreum"]
 
 [dependencies]
 cw2.workspace = true

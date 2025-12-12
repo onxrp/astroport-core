@@ -16,6 +16,13 @@ exclude = [
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[package.metadata]
+build_variants = ["coreum"]
+
+[package.metadata.optimizer]
+standard-build = true
+builds = [{ name = "coreum", features = ["coreum"] }]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -24,6 +31,7 @@ crate-type = ["cdylib", "rlib"]
 # for more explicit tests, cargo test --features=backtraces
 backtraces = ["cosmwasm-std/backtraces"]
 library = []
+coreum = []
 
 [dependencies]
 astroport = "4"

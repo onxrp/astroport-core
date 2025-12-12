@@ -8,12 +8,20 @@ license = "GPL-3.0-only"
 repository = "https://github.com/astroport-fi/astroport"
 homepage = "https://astroport.fi"
 
+[package.metadata]
+build_variants = ["coreum"]
+
+[package.metadata.optimizer]
+standard-build = true
+builds = [{ name = "coreum", features = ["coreum"] }]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [features]
 backtraces = ["cosmwasm-std/backtraces"]
 library = []
+coreum = ["astroport/coreum", "astroport-test/coreum", "astroport-factory/coreum", "astroport-staking/coreum"]
 
 [dependencies]
 astroport.workspace = true

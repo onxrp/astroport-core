@@ -2683,8 +2683,14 @@ fn test_invalid_cw20_lp_token() {
     // Try to stake. Fails with error that factory doesn't have such LP token address
     let cw20_lp_token = Asset::cw20_unchecked(cw20_contract, 1000u128);
     let err = helper.stake(&user, cw20_lp_token).unwrap_err();
+    #[cfg(not(feature = "coreum"))]
     assert_eq!(
         err.root_cause().to_string(),
         "Generic error: LP token wasm1_contract6 doesn't match LP token registered in factory factory/wasm1_contract5/astroport/share".to_string()
-    )
+    );
+    #[cfg(feature = "coreum")]
+    assert_eq!(
+        err.root_cause().to_string(),
+        "Generic error: LP token wasm1_contract6 doesn't match LP token registered in factory astroport/share-wasm1_contract5".to_string()
+    );
 }

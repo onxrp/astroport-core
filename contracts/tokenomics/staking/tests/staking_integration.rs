@@ -33,7 +33,10 @@ fn test_instantiate() {
         response,
         Config {
             astro_denom: ASTRO_DENOM.to_string(),
-            xastro_denom: format!("factory/{}/xASTRO", &helper.staking)
+            #[cfg(not(feature = "coreum"))]
+            xastro_denom: format!("factory/{}/xASTRO", &helper.staking),
+            #[cfg(feature = "coreum")]
+            xastro_denom: format!("xASTRO-{}", &helper.staking),
         }
     );
 
@@ -48,7 +51,10 @@ fn test_instantiate() {
             code_id: 2,
             admin: owner.to_string(),
             token_factory_addr: TOKEN_FACTORY_MODULE.to_string(),
+            #[cfg(not(any(feature = "coreum", feature = "injective")))]
             tracker_addr: "contract1".to_string(),
+            #[cfg(any(feature = "coreum", feature = "injective"))]
+            tracker_addr: "".to_string(),
         }
     );
 }
@@ -390,6 +396,7 @@ fn test_historical_queries() {
         );
     }
 
+    #[cfg(not(any(feature = "coreum", feature = "injective")))]
     for (
         timestamp,
         Entry {
@@ -452,6 +459,7 @@ fn test_historical_queries() {
     assert_eq!(total_deposit, staking_astro_balance);
 }
 
+#[cfg(not(any(feature = "coreum", feature = "injective")))]
 #[test]
 fn test_different_query_results() {
     let owner = Addr::unchecked("owner");

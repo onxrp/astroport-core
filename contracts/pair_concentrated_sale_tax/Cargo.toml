@@ -7,7 +7,6 @@ description = "The Astroport concentrated liquidity pair"
 license = "GPL-3.0-only"
 repository = "https://github.com/astroport-fi/astroport"
 homepage = "https://astroport.fi"
-metadata = { build_variants = ["injective"] }
 
 exclude = [
     # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
@@ -16,6 +15,13 @@ exclude = [
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[package.metadata]
+build_variants = ["injective", "coreum"]
+
+[package.metadata.optimizer]
+standard-build = true
+builds = [{ name = "coreum", features = ["coreum"] }]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -26,6 +32,7 @@ crate-type = ["cdylib", "rlib"]
 backtraces = ["cosmwasm-std/backtraces"]
 library = []
 injective = ["astroport/injective"]
+coreum = ["astroport/coreum"]
 
 [dependencies]
 astroport.workspace = true

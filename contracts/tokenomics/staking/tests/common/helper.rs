@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use anyhow::Result as AnyResult;
+use astroport_test::modules::stargate::MockStargate;
 use cosmwasm_schema::serde::Serialize;
 use cosmwasm_std::testing::MockApi;
 use cosmwasm_std::{
@@ -13,8 +14,6 @@ use cw_multi_test::{
 };
 
 use astroport::staking::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, TrackerData};
-
-use crate::common::stargate::StargateKeeper;
 
 fn staking_contract() -> Box<dyn Contract<Empty>> {
     Box::new(
@@ -50,7 +49,7 @@ pub type CustomizedApp = App<
     DistributionKeeper,
     FailingModule<IbcMsg, IbcQuery, Empty>,
     FailingModule<GovMsg, Empty, Empty>,
-    StargateKeeper,
+    MockStargate,
 >;
 
 pub struct Helper {
@@ -61,12 +60,15 @@ pub struct Helper {
     pub xastro_denom: String,
 }
 
+#[cfg(not(feature = "coreum"))]
 pub const ASTRO_DENOM: &str = "factory/assembly/ASTRO";
+#[cfg(feature = "coreum")]
+pub const ASTRO_DENOM: &str = "ASTRO-assembly";
 
 impl Helper {
     pub fn new(owner: &Addr) -> AnyResult<Self> {
         let mut app = BasicAppBuilder::new()
-            .with_stargate(StargateKeeper::default())
+            .with_stargate(MockStargate::default())
             .build(|router, _, storage| {
                 router
                     .bank
