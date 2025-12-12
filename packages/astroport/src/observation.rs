@@ -159,9 +159,9 @@ pub struct PrecommitObservation {
     pub precommit_ts: u64,
 }
 
-impl<'a> PrecommitObservation {
+impl PrecommitObservation {
     /// Temporal storage for observation which should be committed in the next block
-    const PRECOMMIT_OBSERVATION: Item<'a, PrecommitObservation> =
+    const PRECOMMIT_OBSERVATION: Item<'static, PrecommitObservation> =
         Item::new("precommit_observation");
 
     pub fn save(

@@ -41,7 +41,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: 1.91.1
+          toolchain: 1.86.0
           override: true
 
       - name: Install cargo-tarpaulin

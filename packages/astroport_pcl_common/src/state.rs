@@ -445,9 +445,9 @@ impl PoolState {
 
 pub struct Precisions(Vec<(String, u8)>);
 
-impl<'a> Precisions {
+impl Precisions {
     /// Stores map of AssetInfo (as String) -> precision
-    pub const PRECISIONS: Map<'a, String, u8> = Map::new("precisions");
+    pub const PRECISIONS: Map<'static, String, u8> = Map::new("precisions");
     pub fn new(storage: &dyn Storage) -> StdResult<Self> {
         let items = Self::PRECISIONS
             .range(storage, None, None, Order::Ascending)

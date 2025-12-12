@@ -371,7 +371,7 @@ pub enum AssetInfo {
     NativeToken { denom: String },
 }
 
-impl<'a> PrimaryKey<'a> for &AssetInfo {
+impl PrimaryKey<'_> for &AssetInfo {
     type Prefix = ();
 
     type SubPrefix = ();
@@ -385,7 +385,7 @@ impl<'a> PrimaryKey<'a> for &AssetInfo {
     }
 }
 
-impl<'a> Prefixer<'a> for &AssetInfo {
+impl Prefixer<'_> for &AssetInfo {
     fn prefix(&self) -> Vec<Key<'_>> {
         vec![Key::Ref(self.as_bytes())]
     }
