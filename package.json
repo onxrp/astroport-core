@@ -1,0 +1,17 @@
+{
+  "name": "bidds-astroport",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "codegen": "bun run scripts/codegen.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@cosmwasm/ts-codegen": "^1.14.0"
+  }
+}
