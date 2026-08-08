@@ -1,0 +1,11 @@
+{
+  "network": "coreum-testnet-1",
+  "deployer": "testcore12qxqurj9t6evhc5yw495nj6s2p9q3u3pkrc7e7",
+  "timestamp": "2026-08-08T18:42:16+02:00",
+  "contracts": {
+    "pair": {
+      "code_id": "3862"
+    }
+  },
+  "steps": {}
+}

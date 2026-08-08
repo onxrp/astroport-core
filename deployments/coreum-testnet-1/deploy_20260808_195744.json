@@ -1,0 +1,14 @@
+{
+  "network": "coreum-testnet-1",
+  "deployer": "testcore12qxqurj9t6evhc5yw495nj6s2p9q3u3pkrc7e7",
+  "timestamp": "2026-08-08T19:57:44+02:00",
+  "contracts": {
+    "pair": {
+      "code_id": "3862"
+    }
+  },
+  "steps": {
+    "migrate_testcore1awuq9dc39uwvr8a4jckpx48luxp34pd7pjdykmjp6r7gu3g6n2fq32c027": true,
+    "migrate_testcore13lk84u23d7fq2f6cuswll9n7e6ypu548dgejr39x8n8fl7a2hagswacz28": true
+  }
+}

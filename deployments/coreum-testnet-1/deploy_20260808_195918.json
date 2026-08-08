@@ -1,0 +1,22 @@
+{
+  "network": "coreum-testnet-1",
+  "deployer": "testcore12qxqurj9t6evhc5yw495nj6s2p9q3u3pkrc7e7",
+  "timestamp": "2026-08-08T19:59:18+02:00",
+  "contracts": {
+    "vesting": {
+      "code_id": "3863",
+      "address": "testcore1d8tx9vvj73w3yy5j4604y5zshc9y7jc3zx64u3v9m7kcqhl7aa3qq076x5"
+    },
+    "incentives": {
+      "code_id": "3864",
+      "address": "testcore1523c422yz0ahw2dwknstzkv7agdznpvf0g8z70nmxk5cypq3msrq53cxz9"
+    },
+    "oracle": {
+      "code_id": "3865",
+      "address": "testcore1fxqzpfhxcw0mavrpn66h5z7dptsu7hh3fnqeg9v6hprnu50x80tqlv40tu"
+    }
+  },
+  "steps": {
+    "factory_set_generator": true
+  }
+}
