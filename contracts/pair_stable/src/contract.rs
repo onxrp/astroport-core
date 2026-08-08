@@ -9,7 +9,7 @@ use cosmwasm_std::{
     Decimal256, Deps, DepsMut, Empty, Env, Fraction, MessageInfo, QuerierWrapper, Reply, Response,
     StdError, StdResult, SubMsg, SubMsgResponse, SubMsgResult, Uint128, WasmMsg,
 };
-use cw2::set_contract_version;
+use cw2::{get_contract_version, set_contract_version};
 use cw20::{Cw20ExecuteMsg, Cw20ReceiveMsg};
 use cw_utils::{one_coin, PaymentError};
 use itertools::Itertools;
@@ -1048,9 +1048,30 @@ pub fn assert_max_spread(
 }
 
 /// Manages the contract migration.
+///
+/// Only migrations between tokenfactory-native versions are accepted. There is no supported path
+/// from the cw20 LP token era, so any contract version outside the whitelist below is rejected.
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: Empty) -> Result<Response, ContractError> {
-    unimplemented!("No safe path available for migration from cw20 to tokenfactory LP tokens")
+pub fn migrate(deps: DepsMut, _env: Env, _msg: Empty) -> Result<Response, ContractError> {
+    let contract_version = get_contract_version(deps.storage)?;
+
+    match contract_version.contract.as_ref() {
+        "astroport-pair-stable" => match contract_version.version.as_ref() {
+            // 4.2.0 encoded the Coreum MsgBurn coin on the wrong protobuf field, which made
+            // withdraw_liquidity fail. The fix is code-only: no stored state changes shape.
+            "4.2.0" => {}
+            _ => return Err(ContractError::MigrationError {}),
+        },
+        _ => return Err(ContractError::MigrationError {}),
+    }
+
+    set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
+    Ok(Response::new()
+        .add_attribute("previous_contract_name", &contract_version.contract)
+        .add_attribute("previous_contract_version", &contract_version.version)
+        .add_attribute("new_contract_name", CONTRACT_NAME)
+        .add_attribute("new_contract_version", CONTRACT_VERSION))
 }
 
 /// Returns the total amount of assets in the pool as well as the total amount of LP tokens currently minted.
@@ -1275,4 +1296,68 @@ fn query_simulate_provide(
     let share = calculate_shares(deps, &env, &config, total_share, assets_collection)?;
 
     Ok(share)
+}
+
+#[cfg(test)]
+mod tests {
+    use cosmwasm_std::testing::{mock_dependencies, mock_env};
+    use cosmwasm_std::Empty;
+    use cw2::{get_contract_version, set_contract_version};
+
+    use super::{migrate, CONTRACT_NAME, CONTRACT_VERSION};
+    use crate::error::ContractError;
+
+    /// The migrate whitelist is what stands between a stuck pool and a bricked one, so pin the
+    /// exact version it accepts rather than trusting the match arm to stay correct by inspection.
+    #[test]
+    fn migrate_accepts_the_whitelisted_version_and_bumps_to_current() {
+        let mut deps = mock_dependencies();
+        set_contract_version(deps.as_mut().storage, CONTRACT_NAME, "4.2.0").unwrap();
+
+        let res = migrate(deps.as_mut(), mock_env(), Empty {})
+            .expect("migrating from the whitelisted version must succeed");
+
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "previous_contract_version" && a.value == "4.2.0"));
+        assert!(res
+            .attributes
+            .iter()
+            .any(|a| a.key == "new_contract_version" && a.value == CONTRACT_VERSION));
+
+        let stored = get_contract_version(deps.as_ref().storage).unwrap();
+        assert_eq!(stored.contract, CONTRACT_NAME);
+        assert_eq!(
+            stored.version, CONTRACT_VERSION,
+            "migrate must write the new version, otherwise a fixed pair is indistinguishable \
+             from an unfixed one on chain"
+        );
+    }
+
+    #[test]
+    fn migrate_rejects_versions_outside_the_whitelist() {
+        for version in ["3.0.0", "4.1.0", "4.2.1", "5.0.0"] {
+            let mut deps = mock_dependencies();
+            set_contract_version(deps.as_mut().storage, CONTRACT_NAME, version).unwrap();
+
+            let err = migrate(deps.as_mut(), mock_env(), Empty {}).unwrap_err();
+            assert!(
+                matches!(err, ContractError::MigrationError {}),
+                "version {version} must be rejected, got {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn migrate_rejects_a_different_contract_name() {
+        let mut deps = mock_dependencies();
+        set_contract_version(deps.as_mut().storage, "astroport-pair", "4.2.0").unwrap();
+
+        let err = migrate(deps.as_mut(), mock_env(), Empty {}).unwrap_err();
+        assert!(
+            matches!(err, ContractError::MigrationError {}),
+            "migrating a different contract into this one must be refused, got {err:?}"
+        );
+    }
 }

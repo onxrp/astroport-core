@@ -292,7 +292,9 @@ pub struct MsgBurn {
 pub struct MsgBurn {
     #[prost(string, tag = "1")]
     pub sender: ::prost::alloc::string::String,
-    #[prost(message, optional, tag = "2")]
+    /// Coreum's MsgBurn puts `coin` on tag 3, unlike MsgMint which puts it on tag 2 -
+    /// do not "helpfully" align these, they are genuinely different on the wire.
+    #[prost(message, optional, tag = "3")]
     pub coin: ::core::option::Option<cosmos_sdk_proto::cosmos::base::v1beta1::Coin>,
 }
 
@@ -704,5 +706,206 @@ where
     CosmosMsg::Stargate {
         type_url: MsgSetDenomMetadata::TYPE_URL.to_string(),
         value: Binary::from(msg.encode_to_vec()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pulls the raw protobuf bytes out of a `CosmosMsg::Stargate`, panicking on any other
+    /// variant since every message built in this module is a Stargate message.
+    fn stargate_value(msg: CosmosMsg) -> Vec<u8> {
+        match msg {
+            CosmosMsg::Stargate { value, .. } => value.to_vec(),
+            other => panic!("expected CosmosMsg::Stargate, got {other:?}"),
+        }
+    }
+
+    fn stargate_type_url(msg: &CosmosMsg) -> &str {
+        match msg {
+            CosmosMsg::Stargate { type_url, .. } => type_url,
+            other => panic!("expected CosmosMsg::Stargate, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "coreum")]
+    #[test]
+    fn tf_burn_msg_encodes_coin_on_tag_3() {
+        let sender = "sender_addr";
+        let coin = Coin::new(100u128, "uusd");
+
+        let msg: CosmosMsg = tf_burn_msg(sender, coin);
+        assert_eq!(stargate_type_url(&msg), "/coreum.asset.ft.v1.MsgBurn");
+
+        let bytes = stargate_value(msg);
+
+        // Wire-format breakdown (field number << 3 | wire type, then length-delimited payload):
+        //   0x0a, 0x0b            -> field 1 (sender), wire type 2 (length-delimited), len 11
+        //   "sender_addr"         -> 11 payload bytes
+        //   0x1a, 0x0b            -> field 3 (coin), wire type 2, len 11
+        //     0x0a, 0x04, "uusd"  -> nested field 1 (denom), len 4
+        //     0x12, 0x03, "100"   -> nested field 2 (amount), len 3
+        #[rustfmt::skip]
+        let expected: Vec<u8> = vec![
+            0x0a, 0x0b, b's', b'e', b'n', b'd', b'e', b'r', b'_', b'a', b'd', b'd', b'r',
+            0x1a, 0x0b,
+                0x0a, 0x04, b'u', b'u', b's', b'd',
+                0x12, 0x03, b'1', b'0', b'0',
+        ];
+
+        assert_eq!(
+            bytes, expected,
+            "encoded MsgBurn bytes do not match the hand-computed wire format"
+        );
+
+        // This is the regression check for the original bug: Coreum's MsgBurn.coin lives on
+        // tag 3 (key 0x1a), not tag 2 (key 0x12) like MsgMint.coin. If the coin field is ever
+        // moved back to tag 2, wasmd/prost will still encode *something*, but the assetft
+        // module on Coreum will parse an empty coin from the unexpected tag and reject the
+        // message with "invalid denom:" (empty) - exactly the on-chain failure this fixes.
+        //
+        // The key byte for the *top-level* coin field is the byte right after the sender
+        // field's payload (13 bytes: 2-byte key/len header + 11-byte "sender_addr"), so we
+        // check that specific position rather than scanning the whole buffer - 0x12 also
+        // legitimately appears deeper in the message as the nested Coin.amount field's key.
+        let coin_field_key = bytes[13];
+        assert_eq!(
+            coin_field_key, 0x1a,
+            "expected key byte 0x1a (field 3, wire type 2) for MsgBurn's top-level coin \
+             field, found {coin_field_key:#04x}; if this is 0x12 (field 2), the coin field \
+             regressed off tag 3, which would make Coreum receive an empty coin and reject \
+             withdraw_liquidity with \"invalid denom:\""
+        );
+        assert_ne!(
+            coin_field_key, 0x12,
+            "MsgBurn's top-level coin field is encoded with key 0x12 (field 2, wire type 2); \
+             Coreum's chain does not recognize field 2 for MsgBurn's coin - the coin would \
+             arrive empty and be rejected with \"invalid denom:\""
+        );
+    }
+
+    #[cfg(feature = "coreum")]
+    #[test]
+    fn tf_mint_msg_encodes_coin_on_tag_2_and_recipient_on_tag_3() {
+        let sender = "sender_addr";
+        let recipient = "recipient_addr";
+        let coin = Coin::new(100u128, "uusd");
+
+        let msgs: Vec<CosmosMsg> = tf_mint_msg(sender, coin, recipient);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(stargate_type_url(&msgs[0]), "/coreum.asset.ft.v1.MsgMint");
+
+        let bytes = stargate_value(msgs.into_iter().next().unwrap());
+
+        // Wire-format breakdown:
+        //   0x0a, 0x0b            -> field 1 (sender), len 11
+        //   "sender_addr"         -> 11 payload bytes
+        //   0x12, 0x0b            -> field 2 (coin), wire type 2, len 11
+        //     0x0a, 0x04, "uusd"  -> nested field 1 (denom), len 4
+        //     0x12, 0x03, "100"   -> nested field 2 (amount), len 3
+        //   0x1a, 0x0e            -> field 3 (recipient), len 14
+        //   "recipient_addr"      -> 14 payload bytes
+        #[rustfmt::skip]
+        let expected: Vec<u8> = vec![
+            0x0a, 0x0b, b's', b'e', b'n', b'd', b'e', b'r', b'_', b'a', b'd', b'd', b'r',
+            0x12, 0x0b,
+                0x0a, 0x04, b'u', b'u', b's', b'd',
+                0x12, 0x03, b'1', b'0', b'0',
+            0x1a, 0x0e, b'r', b'e', b'c', b'i', b'p', b'i', b'e', b'n', b't', b'_', b'a', b'd', b'd', b'r',
+        ];
+
+        assert_eq!(
+            bytes, expected,
+            "encoded MsgMint bytes do not match the hand-computed wire format"
+        );
+
+        // MsgMint.coin is correctly on tag 2 (key 0x12) - locked down so it isn't accidentally
+        // "fixed" to match MsgBurn's tag 3 by someone aligning the two structs.
+        assert!(
+            bytes.windows(2).any(|w| w == [0x12, 0x0b]),
+            "expected MsgMint's coin field on tag 2 (key 0x12) with length 11"
+        );
+    }
+
+    #[cfg(feature = "coreum")]
+    #[test]
+    fn tf_burn_msg_round_trips_through_decode() {
+        let sender = "sender_addr";
+        let coin = Coin::new(100u128, "uusd");
+
+        let msg: CosmosMsg = tf_burn_msg(sender, coin);
+        let bytes = stargate_value(msg);
+
+        let decoded = MsgBurn::try_from(Binary::from(bytes)).unwrap();
+        assert_eq!(decoded.sender, "sender_addr");
+        let decoded_coin = decoded.coin.expect("coin must decode back");
+        assert_eq!(decoded_coin.denom, "uusd");
+        assert_eq!(decoded_coin.amount, "100");
+    }
+
+    #[cfg(feature = "coreum")]
+    #[test]
+    fn tf_mint_msg_round_trips_through_decode() {
+        let sender = "sender_addr";
+        let recipient = "recipient_addr";
+        let coin = Coin::new(100u128, "uusd");
+
+        let msgs: Vec<CosmosMsg> = tf_mint_msg(sender, coin, recipient);
+        let bytes = stargate_value(msgs.into_iter().next().unwrap());
+
+        let decoded = MsgMint::try_from(Binary::from(bytes)).unwrap();
+        assert_eq!(decoded.sender, "sender_addr");
+        assert_eq!(decoded.recipient, "recipient_addr");
+        let decoded_coin = decoded.coin.expect("coin must decode back");
+        assert_eq!(decoded_coin.denom, "uusd");
+        assert_eq!(decoded_coin.amount, "100");
+    }
+
+    #[cfg(feature = "coreum")]
+    #[test]
+    fn tf_create_denom_msg_encodes_populated_msg_issue_fields_on_expected_tags() {
+        // tf_create_denom_msg only populates: issuer (1), symbol (2), subunit (3),
+        // precision (4), initial_amount (5), features (7, packed repeated enum).
+        let msg: CosmosMsg = tf_create_denom_msg("issuer_addr", "utoken");
+        assert_eq!(stargate_type_url(&msg), "/coreum.asset.ft.v1.MsgIssue");
+
+        let bytes = stargate_value(msg);
+
+        // Wire-format breakdown:
+        //   0x0a, 0x0b, "issuer_addr" -> field 1 (issuer), len 11
+        //   0x12, 0x06, "utoken"      -> field 2 (symbol), len 6
+        //   0x1a, 0x06, "utoken"      -> field 3 (subunit), len 6
+        //   0x20, 0x06                -> field 4 (precision), varint 6
+        //   0x2a, 0x01, "0"           -> field 5 (initial_amount), len 1
+        //   0x3a, 0x02, 0x00, 0x02    -> field 7 (features), wire type 2 (packed repeated
+        //                                enum, proto3 default), len 2, varints [0, 2]
+        //                                (Feature::Minting, Feature::Freezing)
+        #[rustfmt::skip]
+        let expected: Vec<u8> = vec![
+            0x0a, 0x0b, b'i', b's', b's', b'u', b'e', b'r', b'_', b'a', b'd', b'd', b'r',
+            0x12, 0x06, b'u', b't', b'o', b'k', b'e', b'n',
+            0x1a, 0x06, b'u', b't', b'o', b'k', b'e', b'n',
+            0x20, 0x06,
+            0x2a, 0x01, b'0',
+            0x3a, 0x02, 0x00, 0x02,
+        ];
+
+        assert_eq!(
+            bytes, expected,
+            "encoded MsgIssue bytes do not match the hand-computed wire format for the \
+             fields tf_create_denom_msg populates"
+        );
+
+        let decoded = MsgIssue::try_from(Binary::from(bytes)).unwrap();
+        assert_eq!(decoded.issuer, "issuer_addr");
+        assert_eq!(decoded.symbol, "utoken");
+        assert_eq!(decoded.subunit, "utoken");
+        assert_eq!(decoded.precision, 6);
+        assert_eq!(decoded.initial_amount, "0");
+        assert_eq!(
+            decoded.features,
+            vec![Feature::Minting as i32, Feature::Freezing as i32]
+        );
     }
 }
