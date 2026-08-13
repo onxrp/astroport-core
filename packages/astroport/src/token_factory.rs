@@ -509,6 +509,27 @@ where
     }
 }
 
+/// Issues the contract's own denom (the LP share token, or xASTRO for staking).
+///
+/// Only `minting` is requested, and that is deliberate on both counts.
+///
+/// `burning` is absent because it is not needed. Coreum lets the token admin burn
+/// its own balance whether or not the feature is set -- it is the one feature with
+/// an explicit admin exemption (`IsFeatureAllowed` in x/asset/ft/types/token.go).
+/// The issuing contract is the admin, so `tf_burn_msg` works regardless. What the
+/// feature actually grants is the right for *other holders* to burn, which for an
+/// LP token means destroying a claim on the pool without withdrawing against it:
+/// the burner loses their deposit and the remaining holders absorb it.
+///
+/// `freezing` is absent because no contract here ever sends a freeze, and the
+/// admin is the contract rather than a human operator, so nobody can. Requesting
+/// it only advertised on chain that these tokens are freezable. It is not inert
+/// either: a frozen holder cannot send LP tokens to the pair, which is how a
+/// withdrawal starts.
+///
+/// Features are immutable after issue -- there is no MsgUpdateFeatures, and the v1
+/// upgrade path only ever adds `ibc`. Denoms already live keep whatever they were
+/// issued with; this only affects newly created ones.
 #[cfg(feature = "coreum")]
 pub fn tf_create_denom_msg<T>(sender: impl Into<String>, denom: impl Into<String>) -> CosmosMsg<T>
 where
@@ -523,7 +544,7 @@ where
         symbol: symbol,
         precision: 6,
         initial_amount: Uint128::zero().to_string(),
-        features: vec![Feature::Minting as i32, Feature::Freezing as i32],
+        features: vec![Feature::Minting as i32],
         ..MsgIssue::default()
     };
 
@@ -533,6 +554,8 @@ where
     }
 }
 
+/// Same as [`tf_create_denom_msg`], plus the metadata fields. See that function for
+/// why `minting` is the only feature requested.
 #[cfg(feature = "coreum")]
 pub fn tf_issue_msg<T>(
     sender: impl Into<String>,
@@ -553,7 +576,7 @@ where
         symbol: symbol,
         precision: 6,
         initial_amount: Uint128::zero().to_string(),
-        features: vec![Feature::Minting as i32, Feature::Freezing as i32],
+        features: vec![Feature::Minting as i32],
         description: description.into(),
         uri: uri.into(),
         uri_hash: uri_hash.into(),
@@ -878,9 +901,9 @@ mod tests {
         //   0x1a, 0x06, "utoken"      -> field 3 (subunit), len 6
         //   0x20, 0x06                -> field 4 (precision), varint 6
         //   0x2a, 0x01, "0"           -> field 5 (initial_amount), len 1
-        //   0x3a, 0x02, 0x00, 0x02    -> field 7 (features), wire type 2 (packed repeated
-        //                                enum, proto3 default), len 2, varints [0, 2]
-        //                                (Feature::Minting, Feature::Freezing)
+        //   0x3a, 0x01, 0x00          -> field 7 (features), wire type 2 (packed repeated
+        //                                enum, proto3 default), len 1, varint [0]
+        //                                (Feature::Minting)
         #[rustfmt::skip]
         let expected: Vec<u8> = vec![
             0x0a, 0x0b, b'i', b's', b's', b'u', b'e', b'r', b'_', b'a', b'd', b'd', b'r',
@@ -888,7 +911,7 @@ mod tests {
             0x1a, 0x06, b'u', b't', b'o', b'k', b'e', b'n',
             0x20, 0x06,
             0x2a, 0x01, b'0',
-            0x3a, 0x02, 0x00, 0x02,
+            0x3a, 0x01, 0x00,
         ];
 
         assert_eq!(
@@ -903,9 +926,6 @@ mod tests {
         assert_eq!(decoded.subunit, "utoken");
         assert_eq!(decoded.precision, 6);
         assert_eq!(decoded.initial_amount, "0");
-        assert_eq!(
-            decoded.features,
-            vec![Feature::Minting as i32, Feature::Freezing as i32]
-        );
+        assert_eq!(decoded.features, vec![Feature::Minting as i32]);
     }
 }

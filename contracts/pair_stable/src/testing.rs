@@ -121,7 +121,7 @@ fn proper_initialization() {
                         symbol: LP_SUBDENOM.to_string(),
                         precision: 6,
                         initial_amount: Uint128::zero().to_string(),
-                        features: vec![Feature::Minting as i32, Feature::Freezing as i32],
+                        features: vec![Feature::Minting as i32],
                         ..MsgIssue::default()
                     }
                     .encode_to_vec()
