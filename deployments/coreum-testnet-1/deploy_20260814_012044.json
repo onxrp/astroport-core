@@ -1,0 +1,11 @@
+{
+  "network": "coreum-testnet-1",
+  "deployer": "testcore12qxqurj9t6evhc5yw495nj6s2p9q3u3pkrc7e7",
+  "timestamp": "2026-08-14T01:20:44+02:00",
+  "contracts": {},
+  "steps": {
+    "update_pair_config_testcore1j50sat6r0r6g9fypx8xg2e8dhd9m92sl6gj94z5xwy724y9km37q5g8ykc_xyk": true,
+    "update_pair_config_testcore1j50sat6r0r6g9fypx8xg2e8dhd9m92sl6gj94z5xwy724y9km37q5g8ykc_stable": true,
+    "update_pair_config_testcore1j50sat6r0r6g9fypx8xg2e8dhd9m92sl6gj94z5xwy724y9km37q5g8ykc_concentrated": true
+  }
+}
