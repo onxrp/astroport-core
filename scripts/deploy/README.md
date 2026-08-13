@@ -15,8 +15,26 @@ came from an unguarded full run of the old lendore bringup script.
    clear message if one is missing:
 
    ```bash
-   cargo make rust-optimizer
+   ./scripts/build_release.sh
    ```
+
+   This runs the cosmwasm optimizer in Docker, so Docker has to be running. It
+   builds every contract in the workspace; there is no way to build a single
+   one.
+
+   The `-coreum` artifacts are not produced by a flag. Each contract that has a
+   Coreum variant declares it in its own `Cargo.toml`:
+
+   ```toml
+   [package.metadata.optimizer]
+   standard-build = true
+   builds = [{ name = "coreum", features = ["coreum"] }]
+   ```
+
+   The optimizer reads that and emits both `astroport_pair.wasm` and
+   `astroport_pair-coreum.wasm`. A contract without that block gets one
+   artifact and no `-coreum` name — which is why registry, whitelist, tracker
+   and oracle have none.
 
 2. **Configure.**
 
@@ -53,6 +71,7 @@ message as JSON without broadcasting anything.
 | `--only a,b,c` | Deploy these contracts, in table order |
 | `--all` | Deploy everything in the table |
 | `--migrate` | Migrate the live pairs (see below) |
+| `--migrate-factories <spec>` | Point factories at new pair code ids (see below) |
 | `--store-only` | Upload wasm, skip every instantiate |
 | `--resume <log>` | Reuse code ids and addresses from a previous run |
 | `--dry-run` | Print transactions, broadcast nothing |
@@ -165,16 +184,45 @@ cored tx wasm execute <pair> \
   --chain-id coreum-testnet-1 --node $ASTRO_NODE
 ```
 
-Once that succeeds, point the factories at the new code id:
+Once that succeeds, point the factories at the new code ids:
 
 ```bash
-./scripts/deploy/deploy.sh --migrate-factories <new-code-id>
+./scripts/deploy/deploy.sh --migrate-factories xyk=3872,stable=3873,concentrated=3874 --dry-run
+./scripts/deploy/deploy.sh --migrate-factories xyk=3872,stable=3873,concentrated=3874
 ```
 
-That step restates the full `PairConfig` struct, every field of it.
+Valid types are `xyk`, `stable` and `concentrated`. A bare code id is still
+accepted and means xyk only, so the earlier single-type form keeps working:
+
+```bash
+./scripts/deploy/deploy.sh --migrate-factories 3872
+```
+
+**All three types need this, not just xyk.** Each factory carries a separate
+`PairConfig` per pair type, and `CreatePair` reads the code id fresh from that
+entry every time. Leaving `stable` and `concentrated` pointed at pre-fix code
+means any stable or PCL pair created later ships the `MsgBurn` bug again, even
+though xyk pairs are fine.
+
+The whole argument is validated before the first transaction goes out — an
+unknown type, a non-numeric code id or a repeated type aborts with nothing
+broadcast, rather than surfacing after the first two updates have landed.
+
+Each update restates the full `PairConfig` struct, every field of it.
 `UpdatePairConfig` overwrites rather than merges, so omitting `total_fee_bps`
 or `maker_fee_bps` would silently reset a 30 bps pool to zero fees. Fee values
-come from `ASTRO_XYK_TOTAL_FEE_BPS` / `ASTRO_XYK_MAKER_FEE_BPS`.
+come from the per-type variables in `.env`
+(`ASTRO_XYK_TOTAL_FEE_BPS`, `ASTRO_STABLE_TOTAL_FEE_BPS`, and so on); the
+defaults match what is live on testnet today.
+
+Which factories are targeted comes from `ASTRO_MIGRATE_FACTORIES`, which
+defaults to **both** factory A and factory B. Since nothing depends on factory
+B, set it to factory A alone to leave the duplicate untouched:
+
+```bash
+ASTRO_MIGRATE_FACTORIES=testcore1j50sat6r0r6g9fypx8xg2e8dhd9m92sl6gj94z5xwy724y9km37q5g8ykc \
+  ./scripts/deploy/deploy.sh --migrate-factories xyk=3872,stable=3873,concentrated=3874
+```
 
 Note that `permissioned` and `whitelist` carry `#[serde(default)]`, so leaving
 them out would deserialize rather than error. The script sends them anyway --
@@ -212,7 +260,16 @@ migration on an already-migrated pair fails loudly instead of silently
 succeeding — useful when you lose track partway through a multi-pair rollout.
 
 After `--migrate-factories`, query `{"config":{}}` on each factory and confirm
-the xyk entry shows the new code id **and** still has fees 30 / 3333.
+every updated entry shows the new code id **and** still has its fees:
+
+| pair_type | expected fees (total / maker) |
+| --- | --- |
+| `xyk` | 30 / 3333 |
+| `stable` | 5 / 5000 |
+| `custom("concentrated")` | 0 / 5000 |
+
+A zero where a fee should be is the failure mode to look for — it deserializes
+happily and only shows up as pools trading for free.
 
 ## Live on coreum-testnet-1
 

@@ -88,10 +88,106 @@ PAIR_MIGRATABLE_FROM="2.2.0"
 # zero -- a 30 bps pool would start trading at 0 bps.
 XYK_TOTAL_FEE_BPS="${ASTRO_XYK_TOTAL_FEE_BPS:-30}"
 XYK_MAKER_FEE_BPS="${ASTRO_XYK_MAKER_FEE_BPS:-3333}"
+STABLE_TOTAL_FEE_BPS="${ASTRO_STABLE_TOTAL_FEE_BPS:-5}"
+STABLE_MAKER_FEE_BPS="${ASTRO_STABLE_MAKER_FEE_BPS:-5000}"
+CONCENTRATED_TOTAL_FEE_BPS="${ASTRO_CONCENTRATED_TOTAL_FEE_BPS:-0}"
+CONCENTRATED_MAKER_FEE_BPS="${ASTRO_CONCENTRATED_MAKER_FEE_BPS:-5000}"
 
 # Coreum charges an Asset-FT issue fee. The factory forwards funds attached to
 # CreatePair to the pair so it can mint its LP denom.
 LP_DENOM_CREATION_FEE="${ASTRO_LP_DENOM_CREATION_FEE:-10000000utestcore}"
+
+# ==========================================
+# Pair type lookup, used by --migrate-factories
+# ------------------------------------------
+# UpdatePairConfig overwrites the entire PairConfig struct rather than merging,
+# so every field is restated by the caller. Omitting total_fee_bps /
+# maker_fee_bps would silently reset the pool's fees to zero.
+# ==========================================
+
+# The pair_type JSON for a table key. Kept next to the fee lookup below so a
+# new pair type means adding one case to each, not hunting through the file.
+pair_type_json() {
+    case "$1" in
+        xyk)          echo '{"xyk":{}}' ;;
+        stable)       echo '{"stable":{}}' ;;
+        concentrated) echo '{"custom":"concentrated"}' ;;
+        *)            return 1 ;;
+    esac
+}
+
+# Echoes "<total_fee_bps> <maker_fee_bps>" for a pair type. Defaults are the
+# values measured on the live factories; override per type through .env.
+pair_type_fees() {
+    case "$1" in
+        xyk)          echo "$XYK_TOTAL_FEE_BPS $XYK_MAKER_FEE_BPS" ;;
+        stable)       echo "$STABLE_TOTAL_FEE_BPS $STABLE_MAKER_FEE_BPS" ;;
+        concentrated) echo "$CONCENTRATED_TOTAL_FEE_BPS $CONCENTRATED_MAKER_FEE_BPS" ;;
+        *)            return 1 ;;
+    esac
+}
+
+PAIR_TYPE_KEYS="xyk stable concentrated"
+
+# Parses the --migrate-factories argument into PARSED_TYPE_SPECS as
+# "<type> <code_id>" entries. Accepts either a bare code id (xyk only, the
+# original form) or a comma-separated list of type=code_id pairs.
+#
+# Everything is validated before the caller broadcasts anything: a typo in the
+# third pair must not surface after the first two have already been sent.
+PARSED_TYPE_SPECS=()
+parse_type_specs() {
+    local spec="$1"
+    PARSED_TYPE_SPECS=()
+
+    if [[ "$spec" =~ ^[0-9]+$ ]]; then
+        PARSED_TYPE_SPECS=("xyk $spec")
+        return 0
+    fi
+
+    local -a parts
+    IFS=',' read -ra parts <<< "$spec"
+
+    local part type code seen=""
+    for part in "${parts[@]}"; do
+        part="${part// /}"
+        [ -n "$part" ] || continue
+
+        if [[ "$part" != *=* ]]; then
+            echo "Error: expected <type>=<code_id>, got '$part'." >&2
+            echo "       Valid types: $PAIR_TYPE_KEYS" >&2
+            echo "       A bare number is also accepted and means xyk only." >&2
+            return 1
+        fi
+
+        type="${part%%=*}"
+        code="${part#*=}"
+
+        if ! pair_type_json "$type" >/dev/null; then
+            echo "Error: unknown pair type '$type'. Valid types: $PAIR_TYPE_KEYS" >&2
+            return 1
+        fi
+        if ! [[ "$code" =~ ^[0-9]+$ ]]; then
+            echo "Error: code id for '$type' must be numeric, got '$code'" >&2
+            return 1
+        fi
+        case " $seen " in
+            *" $type "*)
+                echo "Error: pair type '$type' given more than once" >&2
+                return 1 ;;
+        esac
+        seen="$seen $type"
+
+        PARSED_TYPE_SPECS+=("$type $code")
+    done
+
+    if [ ${#PARSED_TYPE_SPECS[@]} -eq 0 ]; then
+        echo "Error: --migrate-factories needs at least one <type>=<code_id> pair" >&2
+        echo "       Valid types: $PAIR_TYPE_KEYS" >&2
+        return 1
+    fi
+    return 0
+}
 
 # ==========================================
 # Arguments
@@ -116,9 +212,13 @@ Modes:
   --migrate          Store the pair wasm and migrate the live pairs. Stops
                      before touching the factories -- run the withdraw test
                      first. Combine with --dry-run.
-  --migrate-factories <code_id>
-                     Point the factories at <code_id> so newly created pairs
-                     get the fix. Run only after the withdraw test passes.
+  --migrate-factories <spec>
+                     Point the factories at new pair code ids so newly created
+                     pairs get the fix. Run only after the withdraw test
+                     passes. <spec> is a comma-separated list of
+                     type=code_id pairs, type one of xyk, stable,
+                     concentrated (e.g. xyk=3872,stable=3873). A bare number
+                     is shorthand for xyk=<number>.
   --store-only       Upload wasm only; skip every instantiate
   --resume <log>     Reuse code ids / addresses recorded in a previous log
   --dry-run          Print every transaction without broadcasting
@@ -128,7 +228,8 @@ Modes:
 Examples:
   deploy.sh --list
   deploy.sh --migrate --dry-run
-  deploy.sh --migrate-factories <code-id-printed-by---migrate>
+  deploy.sh --migrate-factories xyk=3872,stable=3873,concentrated=3874
+  deploy.sh --migrate-factories <code-id-printed-by---migrate>   # xyk only
   deploy.sh --only registry,factory,pair --dry-run
   deploy.sh --only incentives,vesting --resume deployments/deploy_20260101_120000.json
 EOF
@@ -169,6 +270,13 @@ if [ "$MIGRATE_MODE" = false ] && [ "$DEPLOY_ALL" = false ] \
     echo "" >&2
     usage >&2
     exit 1
+fi
+
+# Validate the whole --migrate-factories spec before anything is printed or
+# broadcast. A typo in the third pair must not surface after the first two
+# have already gone out.
+if [ -n "$MIGRATE_FACTORIES_CODE" ]; then
+    parse_type_specs "$MIGRATE_FACTORIES_CODE" || exit 1
 fi
 
 # Resolve the selection against the table, preserving table order so that
@@ -232,7 +340,10 @@ echo "Admin:     $ADMIN"
 if [ "$MIGRATE_MODE" = true ]; then
     echo "Action:    MIGRATE existing pairs"
 elif [ -n "$MIGRATE_FACTORIES_CODE" ]; then
-    echo "Action:    Point factories at pair code_id $MIGRATE_FACTORIES_CODE"
+    echo "Action:    Point factories at pair code ids:"
+    for entry in "${PARSED_TYPE_SPECS[@]}"; do
+        echo "             ${entry% *} -> ${entry#* }"
+    done
 else
     echo "Deploying: ${SELECTED[*]}"
     [ "$STORE_ONLY" = true ] && echo "           (store only, no instantiate)"
@@ -545,46 +656,48 @@ run_migrate() {
 
 # ==========================================
 # Factory repoint (separate invocation, on purpose)
-# ------------------------------------------
-# UpdatePairConfig overwrites the entire PairConfig struct rather than merging,
-# so every field is restated here. Omitting total_fee_bps / maker_fee_bps would
-# silently reset the pool's fees to zero.
 # ==========================================
 run_migrate_factories() {
-    local new_code_id="$1"
-    echo "--- Pointing factories at pair code_id $new_code_id ---"
+    echo "--- Pointing factories at the new pair code ids ---"
     echo ""
-
-    local cfg
-    cfg=$(jq -nc \
-        --argjson cid "$new_code_id" \
-        --argjson total "$XYK_TOTAL_FEE_BPS" \
-        --argjson maker "$XYK_MAKER_FEE_BPS" \
-        '{update_pair_config: {config: {
-            code_id: $cid,
-            pair_type: {xyk: {}},
-            total_fee_bps: $total,
-            maker_fee_bps: $maker,
-            is_disabled: false,
-            is_generator_disabled: false,
-            permissioned: false,
-            whitelist: null
-        }}}')
 
     local -a factories
     IFS=',' read -ra factories <<< "$MIGRATE_FACTORIES"
 
-    local factory
+    local factory entry type code total maker cfg
     for factory in "${factories[@]}"; do
         factory="${factory// /}"
         [ -n "$factory" ] || continue
         echo "Factory $factory"
-        if DRY "cored tx wasm execute $factory '$cfg'"; then
-            continue
-        fi
-        maybe_exec "$LOG" "update_pair_config_$factory" \
-            "$factory" "$cfg" "$NODE" "$CHAIN_ID" "$GAS_PRICES" \
-            "$ASTRO_DEPLOYER_KEY_NAME" || return 1
+
+        for entry in "${PARSED_TYPE_SPECS[@]}"; do
+            read -r type code <<< "$entry"
+            read -r total maker <<< "$(pair_type_fees "$type")"
+
+            cfg=$(jq -nc \
+                --argjson cid "$code" \
+                --argjson ptype "$(pair_type_json "$type")" \
+                --argjson total "$total" \
+                --argjson maker "$maker" \
+                '{update_pair_config: {config: {
+                    code_id: $cid,
+                    pair_type: $ptype,
+                    total_fee_bps: $total,
+                    maker_fee_bps: $maker,
+                    is_disabled: false,
+                    is_generator_disabled: false,
+                    permissioned: false,
+                    whitelist: null
+                }}}')
+
+            echo "  $type -> code_id $code (fees $total / $maker)"
+            if DRY "cored tx wasm execute $factory '$cfg'"; then
+                continue
+            fi
+            maybe_exec "$LOG" "update_pair_config_${factory}_${type}" \
+                "$factory" "$cfg" "$NODE" "$CHAIN_ID" "$GAS_PRICES" \
+                "$ASTRO_DEPLOYER_KEY_NAME" || return 1
+        done
         echo ""
     done
 
@@ -593,8 +706,14 @@ run_migrate_factories() {
         echo "  cored query wasm contract-state smart ${factory// /} '{\"config\":{}}' --node $NODE"
     done
     echo ""
-    echo "Confirm the xyk entry shows code_id $new_code_id AND"
-    echo "total_fee_bps $XYK_TOTAL_FEE_BPS / maker_fee_bps $XYK_MAKER_FEE_BPS."
+    echo "Confirm each entry below shows the new code id AND the stated fees --"
+    echo "UpdatePairConfig overwrites the whole struct, so a dropped field reads"
+    echo "back as zero rather than as an error:"
+    for entry in "${PARSED_TYPE_SPECS[@]}"; do
+        read -r type code <<< "$entry"
+        read -r total maker <<< "$(pair_type_fees "$type")"
+        echo "  $type: code_id $code, total_fee_bps $total, maker_fee_bps $maker"
+    done
 }
 
 # ==========================================
@@ -705,11 +824,8 @@ post_deploy_wiring() {
 if [ "$MIGRATE_MODE" = true ]; then
     run_migrate
 elif [ -n "$MIGRATE_FACTORIES_CODE" ]; then
-    if ! [[ "$MIGRATE_FACTORIES_CODE" =~ ^[0-9]+$ ]]; then
-        echo "Error: --migrate-factories expects a numeric code id, got '$MIGRATE_FACTORIES_CODE'" >&2
-        exit 1
-    fi
-    run_migrate_factories "$MIGRATE_FACTORIES_CODE"
+    # Already validated into PARSED_TYPE_SPECS above.
+    run_migrate_factories
 else
     run_deploy
 fi
