@@ -287,8 +287,28 @@ Verified on chain after the rollout of 2026-08-08, not copied from a run log.
 | incentives | `testcore1523c422yz0ahw2dwknstzkv7agdznpvf0g8z70nmxk5cypq3msrq53cxz9` | 3864 |
 | oracle (TX/USDC) | `testcore1fxqzpfhxcw0mavrpn66h5z7dptsu7hh3fnqeg9v6hprnu50x80tqlv40tu` | 3865 |
 
-Both pairs run `astroport-pair 2.2.1` (the MsgBurn tag fix) and both factories
-point their xyk config at code id 3862 with fees intact at 30 / 3333.
+Both pairs run `astroport-pair 2.2.1` (the MsgBurn tag fix).
+
+### Factory pair configs
+
+Read off chain on 2026-08-14, after the three-type repoint.
+
+**Factory A** — all three types on post-fix code, fees intact:
+
+| pair_type | code id | fees (total / maker) |
+| --- | --- | --- |
+| `xyk` | 3872 | 30 / 3333 |
+| `stable` | 3873 | 5 / 5000 |
+| `custom("concentrated")` | 3874 | 0 / 5000 |
+
+**Factory B** is deliberately left behind: `xyk` on 3862, `stable` on 3622 and
+`concentrated` on 3623. It is a duplicate from an earlier double bringup and
+nothing depends on it. A pair created through factory B on either of the two
+stale types would ship the MsgBurn bug again, so use factory A.
+
+The two live pairs above were created before this repoint and still run code
+3862. That is fine — 3862 already carries the fix; the repoint only decides
+what future `CreatePair` calls instantiate.
 
 The frontend's "generator" is the incentives contract. Only factory A has
 `generator_address` set; factory B still has `null`, which is deliberate —
